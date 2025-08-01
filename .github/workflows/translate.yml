@@ -1,0 +1,82 @@
+name: Content Translation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'trees/**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: "translation-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Set up Node.js (for kodama)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 从其他工作流借鉴的安装步骤
+      - name: Install dependencies
+        run: |
+          pip install -r ./translate/requirements.txt
+          npm install
+          wget https://github.com/Lampese/kodama-streaming-release/releases/latest/download/kodama
+          chmod +x kodama
+          sudo mv kodama /usr/local/bin/
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "Translation Bot"
+          git config --global user.email "bot@community-blog"
+
+      - name: Run translation
+        env:
+          API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python ./translate/github_translator.py \
+            --source-dir ./trees \
+            --target-dir ./trees_en \
+            --pr-reviewers "reviewer1,reviewer2"
+
+      # 从发布工作流借鉴的检查步骤
+      - name: Validate output
+        run: |
+          if [ ! -d "./trees_en" ]; then
+            echo "::error::No translated content generated"
+            exit 1
+          fi
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          title: "[Bot] Translated Content Updates"
+          body: |
+            Automated translation of Markdown content.
+            Changes include:
+            - Translated files from ./trees to ./trees_en
+            - Preserved Markdown formatting
+          branch: "content-translation"
+          labels: "translation,bot"
+          reviewers: reviewer1,reviewer2
