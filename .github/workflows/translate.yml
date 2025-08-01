@@ -30,20 +30,25 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Set up Node.js (for kodama)
+      # 修正点：简化Node.js设置
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: false  # 明确禁用缓存
 
-      # 从其他工作流借鉴的安装步骤
-      - name: Install dependencies
+      - name: Install Python dependencies
+        run: pip install -r ./translate/requirements.txt
+
+      - name: Install Kodama CLI
         run: |
-          pip install -r ./translate/requirements.txt
-          npm install
+          # 优先尝试二进制安装
           wget https://github.com/Lampese/kodama-streaming-release/releases/latest/download/kodama
           chmod +x kodama
           sudo mv kodama /usr/local/bin/
+          
+          # 验证安装
+          kodama --version
 
       - name: Configure Git
         run: |
@@ -60,7 +65,6 @@ jobs:
             --target-dir ./trees_en \
             --pr-reviewers "reviewer1,reviewer2"
 
-      # 从发布工作流借鉴的检查步骤
       - name: Validate output
         run: |
           if [ ! -d "./trees_en" ]; then
