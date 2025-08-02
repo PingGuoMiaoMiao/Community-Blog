@@ -126,7 +126,7 @@ class TranslationBot:
         
         if changed:
             logger.info(f"Detected {len(changed)} changed files")
-            # 修复：使用绝对路径的源目录来计算相对路径
+            # 使用绝对路径的源目录来计算相对路径
             source_abs = Path(self.args.source_dir).absolute()
             sample_files = "\n".join([f"  - {Path(f).relative_to(source_abs)}" for f in changed[:3]])
             if len(changed) > 3:
@@ -205,13 +205,16 @@ Files processed:
         pr_title = f"[Bot] Translation Updates ({self.run_id})"
         pr_body = self.generate_pr_body(changed_files, stats)
         
+        # 创建 PR（不使用 labels 参数）
         pr = repo.create_pull(
             title=pr_title,
             body=pr_body,
             head=branch_name,
-            base="main",
-            labels=["translation", "needs-review"]
+            base="main"
         )
+        
+        # 单独添加标签
+        pr.add_to_labels("translation", "needs-review")
         
         # 设置审阅者
         if self.args.pr_reviewers:

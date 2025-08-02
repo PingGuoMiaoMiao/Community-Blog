@@ -50,14 +50,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -exo pipefail
-          
+
           # 添加环境变量供Python脚本使用
           export GITHUB_RUN_ID=$GITHUB_RUN_ID
           export GITHUB_REPOSITORY=$GITHUB_REPOSITORY
-          
+
           # 确保翻译目录存在
           mkdir -p ./trees_en
-          
+
           python ./translate/github_translator.py \
             --source-dir ./trees \
             --target-dir ./trees_en \
