@@ -126,7 +126,9 @@ class TranslationBot:
         
         if changed:
             logger.info(f"Detected {len(changed)} changed files")
-            sample_files = "\n".join([f"  - {Path(f).relative_to(self.args.source_dir)}" for f in changed[:3]])
+            # 修复：使用绝对路径的源目录来计算相对路径
+            source_abs = Path(self.args.source_dir).absolute()
+            sample_files = "\n".join([f"  - {Path(f).relative_to(source_abs)}" for f in changed[:3]])
             if len(changed) > 3:
                 sample_files += f"\n  - ...(+{len(changed)-3} more)"
             logger.info(f"Changed files:\n{sample_files}")
@@ -140,8 +142,9 @@ class TranslationBot:
         output_dir = Path(self.args.target_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # 获取相对路径用于处理
-        rel_files = [str(Path(f).relative_to(self.args.source_dir)) for f in files]
+        # 获取相对路径用于处理 - 使用绝对路径的源目录
+        source_abs = Path(self.args.source_dir).absolute()
+        rel_files = [str(Path(f).relative_to(source_abs)) for f in files]
         
         logger.info(f"Starting translation of {len(files)} files to {output_dir}...")
         logger.info(f"Files to translate: {rel_files[:3]}... (total: {len(rel_files)})")
@@ -220,7 +223,9 @@ Files processed:
 
     def generate_pr_body(self, files: List[str], stats: Dict[str, int]) -> str:
         """生成完整的 PR 描述"""
-        sample_files = "\n".join(f"- `{Path(f).relative_to(self.args.source_dir)}`" for f in files[:5])
+        # 使用绝对路径的源目录来计算相对路径
+        source_abs = Path(self.args.source_dir).absolute()
+        sample_files = "\n".join(f"- `{Path(f).relative_to(source_abs)}`" for f in files[:5])
         if len(files) > 5:
             sample_files += f"\n- ...(+{len(files)-5} more files)"
         
