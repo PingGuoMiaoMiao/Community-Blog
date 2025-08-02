@@ -122,9 +122,23 @@ class MarkdownTranslator:
 
     def translate_file(self, input_path: str, output_path: str) -> bool:
         """处理单个文件，使用原子写入"""
+        # 确保 rel_path 始终有值
+        rel_path = input_path  # 默认值
+        
         try:
             input_file = Path(input_path)
-            rel_path = input_file.relative_to(Path.cwd())
+            # 使用更健壮的路径处理方法
+            try:
+                # 尝试获取相对于源目录的路径
+                source_path = Path.cwd() / "trees"
+                rel_path = input_file.relative_to(source_path)
+            except ValueError:
+                # 如果失败，尝试获取相对于当前工作目录的路径
+                try:
+                    rel_path = input_file.relative_to(Path.cwd())
+                except ValueError:
+                    # 如果都失败，使用绝对路径
+                    rel_path = input_file.absolute()
             
             # 读取文件，明确处理编码
             with open(input_path, 'r', encoding='utf-8', newline='') as f:
