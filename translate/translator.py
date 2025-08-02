@@ -151,8 +151,10 @@ class MarkdownTranslator:
             # 创建输出目录结构
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Translating {rel_path} → {output_file.relative_to(Path.cwd())}")
-
+            
+            # 修复：直接使用输出路径字符串，避免相对路径计算
+            logger.info(f"Translating {rel_path} → {output_path}")
+            
             # 原子写入模式
             temp_path = output_file.with_suffix('.tmp')
             translated = self.translate_text(content, str(rel_path))
