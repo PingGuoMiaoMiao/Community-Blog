@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+import json
 from pathlib import Path
 from typing import List, Dict
 from translator import MarkdownTranslator
@@ -82,28 +83,44 @@ class TranslationBot:
         source_path = Path(self.args.source_dir).absolute()
         
         try:
-            # 获取最近一次提交的变更
-            if self.repo.head.is_valid():
-                commit = self.repo.head.commit
-                
-                # 初始提交没有父提交
-                if len(commit.parents) > 0:
-                    diff = commit.parents[0].diff(commit)
-                else:
-                    # 初始提交，获取所有文件
-                    diff = commit.diff(None)
-                
-                for diff_item in diff:
-                    if diff_item.change_type in ('A', 'M') and diff_item.a_path.endswith('.md'):
-                        abs_path = (self.repo.working_dir / diff_item.a_path).absolute()
-                        try:
-                            rel_path = abs_path.relative_to(source_path)
-                            if not str(rel_path).startswith('..'):
+            # 方法1: 使用 GitPython 的 diff
+            try:
+                # 获取当前 HEAD 与上一次提交的差异
+                if self.repo.head.is_valid() and len(self.repo.head.commit.parents) > 0:
+                    diff = self.repo.head.commit.parents[0].diff(self.repo.head.commit)
+                    for diff_item in diff:
+                        if diff_item.change_type in ('A', 'M') and diff_item.a_path.endswith('.md'):
+                            abs_path = (Path(self.repo.working_dir) / diff_item.a_path).absolute()
+                            try:
+                                rel_path = abs_path.relative_to(source_path)
+                                if not str(rel_path).startswith('..'):
+                                    changed.append(str(abs_path))
+                            except ValueError:
+                                continue
+            except Exception as e:
+                logger.warning(f"GitPython diff failed: {str(e)}")
+            
+            # 方法2: 如果方法1失败，使用环境变量
+            if not changed:
+                logger.info("Trying alternative method using GitHub event payload")
+                event_path = os.getenv("GITHUB_EVENT_PATH")
+                if event_path and Path(event_path).exists():
+                    with open(event_path, 'r') as f:
+                        event_data = json.load(f)
+                    
+                    # 获取提交中修改的文件
+                    for commit in event_data.get('commits', []):
+                        for file_path in commit.get('modified', []) + commit.get('added', []):
+                            if file_path.endswith('.md') and file_path.startswith(self.args.source_dir):
+                                abs_path = (Path(self.repo.working_dir) / file_path).absolute()
                                 changed.append(str(abs_path))
-                        except ValueError:
-                            continue
-            else:
-                logger.warning("Git HEAD is not valid")
+            
+            # 方法3: 作为最后手段，处理所有文件
+            if not changed:
+                logger.warning("No changes detected, processing all files")
+                for file_path in Path(self.args.source_dir).rglob('*.md'):
+                    changed.append(str(file_path.absolute()))
+            
         except Exception as e:
             logger.error(f"Failed to detect changed files: {str(e)}")
         
@@ -127,7 +144,7 @@ class TranslationBot:
         rel_files = [str(Path(f).relative_to(self.args.source_dir)) for f in files]
         
         logger.info(f"Starting translation of {len(files)} files to {output_dir}...")
-        logger.info(f"Files to translate: {rel_files}")
+        logger.info(f"Files to translate: {rel_files[:3]}... (total: {len(rel_files)})")
         
         # 调用翻译器
         stats = self.translator.batch_translate(
