@@ -83,7 +83,7 @@ class TranslationBot:
         source_path = Path(self.args.source_dir).absolute()
         
         try:
-            # 方法1: 使用 GitPython 的 diff
+            # 方法 1: 使用 GitPython 的 diff
             try:
                 # 获取当前 HEAD 与上一次提交的差异
                 if self.repo.head.is_valid() and len(self.repo.head.commit.parents) > 0:
@@ -100,7 +100,7 @@ class TranslationBot:
             except Exception as e:
                 logger.warning(f"GitPython diff failed: {str(e)}")
             
-            # 方法2: 如果方法1失败，使用环境变量
+            # 方法 2: 如果方法 1 失败，使用环境变量
             if not changed:
                 logger.info("Trying alternative method using GitHub event payload")
                 event_path = os.getenv("GITHUB_EVENT_PATH")
@@ -115,7 +115,7 @@ class TranslationBot:
                                 abs_path = (Path(self.repo.working_dir) / file_path).absolute()
                                 changed.append(str(abs_path))
             
-            # 方法3: 作为最后手段，处理所有文件
+            # 方法 3: 作为最后手段，处理所有文件
             if not changed:
                 logger.warning("No changes detected, processing all files")
                 for file_path in Path(self.args.source_dir).rglob('*.md'):
