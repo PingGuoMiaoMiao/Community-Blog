@@ -1,4 +1,4 @@
-name: Markdown Translation Pipeline
+name: Automated Markdown Translation
 
 on:
   push:
@@ -30,79 +30,41 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Validate source files
         run: |
-          pip install -r ./translate/requirements.txt
-          sudo apt-get install -y wget
-
-      - name: Setup Translation Environment
-        env:
-          API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
-        run: |
-          # Verify API connectivity
-          if ! curl -sSf -H "Authorization: Bearer $API_KEY" \
-            https://api.siliconflow.cn/v1/models > /dev/null; then
-            echo "::error::API connection failed"
+          if [ ! -d "./trees" ]; then
+            echo "::error::Source directory ./trees not found"
             exit 1
           fi
+          echo "Found $(find ./trees -name '*.md' | wc -l) markdown files"
 
-          # Install Kodama CLI (fallback mechanism)
-          if ! command -v kodama &> /dev/null; then
-            wget -q https://github.com/Lampese/kodama-streaming-release/releases/latest/download/kodama
-            chmod +x kodama
-            sudo mv kodama /usr/local/bin/
-          fi
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ./translate/requirements.txt
+          sudo apt-get install -y tree
 
-      - name: Run Translation
+      - name: Run translation
         env:
           API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -exo pipefail
           
-          # Create timestamp for this run
-          echo "TRANSLATION_VERSION=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
+          # 添加环境变量供Python脚本使用
+          export GITHUB_RUN_ID=$GITHUB_RUN_ID
+          export GITHUB_REPOSITORY=$GITHUB_REPOSITORY
+          
+          # 确保翻译目录存在
+          mkdir -p ./trees_en
           
           python ./translate/github_translator.py \
             --source-dir ./trees \
             --target-dir ./trees_en \
-            --pr-reviewers "reviewer1,reviewer2" \
-            --metadata "Automated translation run ${{ env.TRANSLATION_VERSION }}"
+            --pr-reviewers "YOUR_GITHUB_USERNAME_HERE,ANOTHER_USERNAME"  # 替换为实际审阅者
 
-      - name: Verify Results
+      - name: Verify output
         run: |
-          # Check basic directory structure
-          if [ ! -d "./trees_en" ]; then
-            echo "::error::Translation output missing"
-            exit 1
-          fi
-          
-          # Count translated files
-          FILE_COUNT=$(find ./trees_en -name "*.md" | wc -l)
-          echo "Translated $FILE_COUNT files"
-          if [ "$FILE_COUNT" -eq 0 ]; then
-            echo "::error::No files were translated"
-            exit 1
-          fi
-
-      - name: Create Review PR
-        uses: peter-evans/create-pull-request@v5
-        with:
-          title: "[Bot] Translation Updates (${{ env.TRANSLATION_VERSION }})"
-          body: |
-            ### Automated Translation Batch
-            
-            **Source Directory**: `./trees`  
-            **Target Directory**: `./trees_en`  
-            **Processed Files**: ${{ steps.verify.outputs.file_count }}
-            
-            #### Verification Guide:
-            1. Check Markdown formatting integrity
-            2. Validate technical term accuracy
-            3. Review code block preservation
-            
-            > Metadata: ${{ env.TRANSLATION_VERSION }}
-          branch: "translation-${{ env.TRANSLATION_VERSION }}"
-          labels: "translation,needs-review"
-          reviewers: reviewer1,reviewer2
-          commit-message: "feat(translation): batch update ${{ env.TRANSLATION_VERSION }}"
+          echo "### Translation Results ###"
+          tree -L 3 ./trees_en || true
+          echo "Total files: $(find ./trees_en -name '*.md' | wc -l)"

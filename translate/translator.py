@@ -1,9 +1,11 @@
 import os
+import json
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
+import hashlib
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,7 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class TranslationError(Exception):
-    """Custom exception for translation failures"""
+    """翻译失败的自定义异常"""
     pass
 
 class MarkdownTranslator:
@@ -25,22 +27,37 @@ class MarkdownTranslator:
             "Content-Type": "application/json"
         })
         self.glossary = self.load_glossary()
+        self.cache_dir = Path(".translation_cache")
+        self.cache_dir.mkdir(exist_ok=True)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def translate_text(self, text: str) -> str:
-        """Translate with technical content preservation"""
+    def translate_text(self, text: str, file_path: str) -> str:
+        """使用技术内容保留进行翻译"""
+        # 检查缓存
+        cache_key = hashlib.md5(text.encode('utf-8')).hexdigest()
+        cache_file = self.cache_dir / f"{cache_key}.cache"
+        
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception as e:
+                logger.warning(f"Cache read failed: {str(e)}")
+        
         payload = {
             "model": "Pro/deepseek-ai/DeepSeek-R1",
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You are a senior technical translator. Follow these rules:\n"
-                        "1. EXACTLY preserve Markdown structure\n"
-                        "2. NEVER modify code blocks\n"
-                        "3. Keep URLs and YAML front matter unchanged\n"
-                        f"4. Use this glossary:\n{self.format_glossary()}\n"
-                        "5. Maintain consistent technical terminology"
+                        "你是一位专业的技术文档翻译助手。\n"
+                        "规则:\n"
+                        "1. 完全保留所有Markdown格式\n"
+                        "2. 绝不修改代码块或行内代码\n"
+                        "3. 保留URL和YAML front matter不变\n"
+                        f"4. 使用以下术语表:\n{self.format_glossary()}\n"
+                        "5. 保持技术术语一致\n"
+                        f"6. 正在翻译的文件路径: {file_path}"
                     )
                 },
                 {
@@ -49,85 +66,133 @@ class MarkdownTranslator:
                 }
             ],
             "temperature": 0.3,
-            "max_tokens": 4000
+            "max_tokens": 4000,
+            "top_p": 0.9
         }
 
         try:
             response = self.session.post(
                 self.base_url,
                 json=payload,
-                timeout=30
+                timeout=60  # 增加超时时间
             )
             response.raise_for_status()
-            return response.json()['choices'][0]['message']['content']
+            result = response.json()['choices'][0]['message']['content']
+            
+            # 保存缓存
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    f.write(result)
+            except Exception as e:
+                logger.warning(f"Cache write failed: {str(e)}")
+                
+            return result
+            
         except requests.exceptions.RequestException as e:
-            logger.error(f"API request failed (attempt {self.translate_text.retry.statistics['attempt_number']}): {str(e)}")
-            raise TranslationError("Translation service error")
+            logger.error(f"API请求失败: {str(e)}")
+            raise TranslationError("翻译服务不可用")
         except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            raise TranslationError("Processing failure")
+            logger.error(f"意外错误: {str(e)}")
+            raise TranslationError("处理翻译失败")
 
     def load_glossary(self) -> Dict[str, str]:
-        """Load technical term glossary"""
-        glossary_path = Path("translate/glossary.json")
-        if glossary_path.exists():
-            try:
-                with open(glossary_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Glossary load failed: {str(e)}")
+        """加载技术术语表"""
+        glossary_paths = [
+            Path("translate/glossary.json"),
+            Path("./glossary.json")
+        ]
+        
+        for glossary_path in glossary_paths:
+            if glossary_path.exists():
+                try:
+                    with open(glossary_path, 'r', encoding='utf-8') as f:
+                        logger.info(f"Loaded glossary from {glossary_path}")
+                        return json.load(f)
+                except Exception as e:
+                    logger.warning(f"术语表加载失败({glossary_path}): {str(e)}")
+        
+        logger.warning("No glossary found, using empty glossary")
         return {}
 
     def format_glossary(self) -> str:
-        """Format glossary for API prompt"""
-        return "\n".join(f"{k} => {v}" for k, v in self.glossary.items())
+        """为API提示格式化术语表"""
+        if not self.glossary:
+            return "（空术语表）"
+        return "\n".join(f"{k} → {v}" for k, v in self.glossary.items())
 
     def translate_file(self, input_path: str, output_path: str) -> bool:
-        """Process single file with atomic writes"""
+        """处理单个文件，使用原子写入"""
         try:
+            input_file = Path(input_path)
+            rel_path = input_file.relative_to(Path.cwd())
+            
+            # 读取文件，明确处理编码
             with open(input_path, 'r', encoding='utf-8', newline='') as f:
                 content = f.read()
 
             if not content.strip():
-                logger.warning(f"Skipped empty file: {input_path}")
+                logger.warning(f"跳过空文件: {rel_path}")
                 return False
 
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # 创建输出目录结构
+            output_file = Path(output_path)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Translating {rel_path} → {output_file.relative_to(Path.cwd())}")
 
-            # Atomic write pattern
-            temp_path = output_path.with_suffix('.tmp')
-            with open(temp_path, 'w', encoding='utf-8', newline='') as f:
-                f.write(self.translate_text(content))
+            # 原子写入模式
+            temp_path = output_file.with_suffix('.tmp')
+            translated = self.translate_text(content, str(rel_path))
             
-            temp_path.replace(output_path)
+            with open(temp_path, 'w', encoding='utf-8', newline='') as f:
+                f.write(translated)
+            
+            # 成功后原子重命名
+            temp_path.replace(output_file)
             return True
 
-        except TranslationError:
+        except TranslationError as e:
+            logger.error(f"翻译失败 {rel_path}: {str(e)}")
             return False
         except Exception as e:
-            logger.error(f"File processing error ({input_path}): {str(e)}")
+            logger.error(f"处理 {rel_path} 失败: {str(e)}", exc_info=True)
             return False
 
     def batch_translate(self, 
                       input_dir: str, 
                       output_dir: str, 
                       specific_files: Optional[List[str]] = None) -> Dict[str, int]:
-        """Execute batch translation with structure preservation"""
+        """
+        批量翻译，保留目录结构
+        
+        参数:
+            input_dir: 源目录路径
+            output_dir: 目标目录路径
+            specific_files: 要处理的相对路径的可选列表
+            
+        返回:
+            包含成功/失败计数的字典
+        """
         input_path = Path(input_dir)
         output_path = Path(output_dir)
         
-        files = [input_path / f for f in specific_files] if specific_files else list(input_path.rglob('*.md'))
+        # 解析文件列表
+        if specific_files:
+            md_files = [input_path / f for f in specific_files]
+        else:
+            md_files = list(input_path.rglob('*.md'))
+        
+        logger.info(f"Found {len(md_files)} files for translation")
         
         stats = {'success': 0, 'failed': 0}
-        for md_file in files:
+        for md_file in md_files:
+            # 维护相对路径结构
             rel_path = md_file.relative_to(input_path)
-            output_file = output_path / rel_path.with_name(f"{rel_path.stem}_en.md")
+            output_file = output_path / rel_path
             
             if self.translate_file(str(md_file), str(output_file)):
                 stats['success'] += 1
             else:
                 stats['failed'] += 1
         
-        logger.info(f"Batch completed - Success: {stats['success']}, Failed: {stats['failed']}")
+        logger.info(f"翻译完成: ✅ {stats['success']} 个成功, ❌ {stats['failed']} 个失败")
         return stats
