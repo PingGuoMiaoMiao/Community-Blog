@@ -52,7 +52,7 @@ class TranslationBot:
 
     def run(self):
         try:
-            logger.info(f"Starting traun {self.run_id}")
+            logger.info(f"Starting translation run {self.run_id}")
             
             # 阶段 1：检测和验证变更
             changed_files = self.get_changed_files()
@@ -82,23 +82,28 @@ class TranslationBot:
         source_path = Path(self.args.source_dir).absolute()
         
         try:
-            # 获取所有未暂存的变更
-            diff_result = self.repo.index.diff(None)
-            
-            for diff_item in diff_result:
-                file_path = diff_item.a_path
+            # 获取最近一次提交的变更
+            if self.repo.head.is_valid():
+                commit = self.repo.head.commit
                 
-                # 只处理 .md 文件
-                if file_path and file_path.endswith('.md'):
-                    abs_path = (self.repo.working_dir / file_path).absolute()
-                    
-                    # 验证文件在源目录中
-                    try:
-                        rel_path = abs_path.relative_to(source_path)
-                        if not str(rel_path).startswith('..'):
-                            changed.append(str(abs_path))
-                    except ValueError:
-                        continue
+                # 初始提交没有父提交
+                if len(commit.parents) > 0:
+                    diff = commit.parents[0].diff(commit)
+                else:
+                    # 初始提交，获取所有文件
+                    diff = commit.diff(None)
+                
+                for diff_item in diff:
+                    if diff_item.change_type in ('A', 'M') and diff_item.a_path.endswith('.md'):
+                        abs_path = (self.repo.working_dir / diff_item.a_path).absolute()
+                        try:
+                            rel_path = abs_path.relative_to(source_path)
+                            if not str(rel_path).startswith('..'):
+                                changed.append(str(abs_path))
+                        except ValueError:
+                            continue
+            else:
+                logger.warning("Git HEAD is not valid")
         except Exception as e:
             logger.error(f"Failed to detect changed files: {str(e)}")
         
@@ -122,6 +127,7 @@ class TranslationBot:
         rel_files = [str(Path(f).relative_to(self.args.source_dir)) for f in files]
         
         logger.info(f"Starting translation of {len(files)} files to {output_dir}...")
+        logger.info(f"Files to translate: {rel_files}")
         
         # 调用翻译器
         stats = self.translator.batch_translate(
