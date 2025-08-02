@@ -1,9 +1,9 @@
 import os
-import json
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional
 import logging
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,21 +24,23 @@ class MarkdownTranslator:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         })
+        self.glossary = self.load_glossary()
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def translate_text(self, text: str) -> str:
-        """Translate text while preserving technical content"""
+        """Translate with technical content preservation"""
         payload = {
             "model": "Pro/deepseek-ai/DeepSeek-R1",
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You are a professional technical translator. "
-                        "Translate Chinese to English while EXACTLY preserving:"
-                        "\n1. All Markdown formatting (headings, lists, etc)"
-                        "\n2. Code blocks and inline code"
-                        "\n3. URLs and YAML front matter"
-                        "\n4. Technical terms (use glossary if available)"
+                        "You are a senior technical translator. Follow these rules:\n"
+                        "1. EXACTLY preserve Markdown structure\n"
+                        "2. NEVER modify code blocks\n"
+                        "3. Keep URLs and YAML front matter unchanged\n"
+                        f"4. Use this glossary:\n{self.format_glossary()}\n"
+                        "5. Maintain consistent technical terminology"
                     )
                 },
                 {
@@ -59,70 +61,66 @@ class MarkdownTranslator:
             response.raise_for_status()
             return response.json()['choices'][0]['message']['content']
         except requests.exceptions.RequestException as e:
-            logger.error(f"API request failed: {str(e)}")
-            raise TranslationError("Translation service unavailable")
+            logger.error(f"API request failed (attempt {self.translate_text.retry.statistics['attempt_number']}): {str(e)}")
+            raise TranslationError("Translation service error")
         except Exception as e:
             logger.error(f"Unexpected error: {str(e)}")
-            raise TranslationError("Failed to process translation")
+            raise TranslationError("Processing failure")
+
+    def load_glossary(self) -> Dict[str, str]:
+        """Load technical term glossary"""
+        glossary_path = Path("translate/glossary.json")
+        if glossary_path.exists():
+            try:
+                with open(glossary_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Glossary load failed: {str(e)}")
+        return {}
+
+    def format_glossary(self) -> str:
+        """Format glossary for API prompt"""
+        return "\n".join(f"{k} => {v}" for k, v in self.glossary.items())
 
     def translate_file(self, input_path: str, output_path: str) -> bool:
-        """Process single file with enhanced error handling"""
+        """Process single file with atomic writes"""
         try:
-            # Read with explicit encoding and line handling
             with open(input_path, 'r', encoding='utf-8', newline='') as f:
                 content = f.read()
 
-            # Skip empty files
             if not content.strip():
                 logger.warning(f"Skipped empty file: {input_path}")
                 return False
 
-            # Create output directory structure
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write with atomic write pattern
+            # Atomic write pattern
             temp_path = output_path.with_suffix('.tmp')
             with open(temp_path, 'w', encoding='utf-8', newline='') as f:
                 f.write(self.translate_text(content))
             
-            # Atomic rename on success
             temp_path.replace(output_path)
             return True
 
         except TranslationError:
             return False
         except Exception as e:
-            logger.error(f"Failed to process {input_path}: {str(e)}")
+            logger.error(f"File processing error ({input_path}): {str(e)}")
             return False
 
     def batch_translate(self, 
                       input_dir: str, 
                       output_dir: str, 
                       specific_files: Optional[List[str]] = None) -> Dict[str, int]:
-        """
-        Batch translate with directory structure preservation
-        
-        Args:
-            input_dir: Source directory path
-            output_dir: Target directory path
-            specific_files: Optional list of relative paths to process
-            
-        Returns:
-            Dictionary with success/failure counts
-        """
+        """Execute batch translation with structure preservation"""
         input_path = Path(input_dir)
         output_path = Path(output_dir)
         
-        # Resolve file list
-        if specific_files:
-            md_files = [input_path / f for f in specific_files]
-        else:
-            md_files = list(input_path.rglob('*.md'))
+        files = [input_path / f for f in specific_files] if specific_files else list(input_path.rglob('*.md'))
         
         stats = {'success': 0, 'failed': 0}
-        for md_file in md_files:
-            # Maintain relative path structure
+        for md_file in files:
             rel_path = md_file.relative_to(input_path)
             output_file = output_path / rel_path.with_name(f"{rel_path.stem}_en.md")
             
@@ -131,29 +129,5 @@ class MarkdownTranslator:
             else:
                 stats['failed'] += 1
         
-        logger.info(f"Translation completed: {stats['success']} succeeded, {stats['failed']} failed")
+        logger.info(f"Batch completed - Success: {stats['success']}, Failed: {stats['failed']}")
         return stats
-
-def load_config(config_path: str = None) -> Dict[str, str]:
-    """Locate and load configuration from multiple possible locations"""
-    search_paths = [
-        Path("config.json"),
-        Path(__file__).parent.parent / "config.json",
-        Path.home() / ".config/community-blog.json"
-    ]
-    
-    if config_path:
-        search_paths.insert(0, Path(config_path))
-    
-    for path in search_paths:
-        if path.exists():
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                if config.get("api_key"):
-                    return config
-            except Exception as e:
-                logger.warning(f"Config load failed for {path}: {str(e)}")
-                continue
-                
-    raise FileNotFoundError("No valid config file found")

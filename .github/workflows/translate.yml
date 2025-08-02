@@ -1,4 +1,4 @@
-name: Content Translation
+name: Markdown Translation Pipeline
 
 on:
   push:
@@ -30,54 +30,79 @@ jobs:
         with:
           python-version: '3.10'
 
-      # 修正点：完全移除了cache参数
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'  # 仅保留版本号设置
-
-      - name: Install Python dependencies
-        run: pip install -r ./translate/requirements.txt
-
-      - name: Install Kodama CLI
+      - name: Install dependencies
         run: |
-          # 二进制安装（不依赖npm）
-          wget https://github.com/Lampese/kodama-streaming-release/releases/latest/download/kodama
-          chmod +x kodama
-          sudo mv kodama /usr/local/bin/
-          kodama --version
+          pip install -r ./translate/requirements.txt
+          sudo apt-get install -y wget
 
-      - name: Configure Git
+      - name: Setup Translation Environment
+        env:
+          API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
         run: |
-          git config --global user.name "Translation Bot"
-          git config --global user.email "bot@community-blog"
+          # Verify API connectivity
+          if ! curl -sSf -H "Authorization: Bearer $API_KEY" \
+            https://api.siliconflow.cn/v1/models > /dev/null; then
+            echo "::error::API connection failed"
+            exit 1
+          fi
 
-      - name: Run translation
+          # Install Kodama CLI (fallback mechanism)
+          if ! command -v kodama &> /dev/null; then
+            wget -q https://github.com/Lampese/kodama-streaming-release/releases/latest/download/kodama
+            chmod +x kodama
+            sudo mv kodama /usr/local/bin/
+          fi
+
+      - name: Run Translation
         env:
           API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -exo pipefail
+          
+          # Create timestamp for this run
+          echo "TRANSLATION_VERSION=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
+          
           python ./translate/github_translator.py \
             --source-dir ./trees \
             --target-dir ./trees_en \
-            --pr-reviewers "reviewer1,reviewer2"
+            --pr-reviewers "reviewer1,reviewer2" \
+            --metadata "Automated translation run ${{ env.TRANSLATION_VERSION }}"
 
-      - name: Validate output
+      - name: Verify Results
         run: |
+          # Check basic directory structure
           if [ ! -d "./trees_en" ]; then
-            echo "::error::No translated content generated"
+            echo "::error::Translation output missing"
+            exit 1
+          fi
+          
+          # Count translated files
+          FILE_COUNT=$(find ./trees_en -name "*.md" | wc -l)
+          echo "Translated $FILE_COUNT files"
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "::error::No files were translated"
             exit 1
           fi
 
-      - name: Create Pull Request
+      - name: Create Review PR
         uses: peter-evans/create-pull-request@v5
         with:
-          title: "[Bot] Translated Content Updates"
+          title: "[Bot] Translation Updates (${{ env.TRANSLATION_VERSION }})"
           body: |
-            Automated translation of Markdown content.
-            Changes include:
-            - Translated files from ./trees to ./trees_en
-            - Preserved Markdown formatting
-          branch: "content-translation"
-          labels: "translation,bot"
+            ### Automated Translation Batch
+            
+            **Source Directory**: `./trees`  
+            **Target Directory**: `./trees_en`  
+            **Processed Files**: ${{ steps.verify.outputs.file_count }}
+            
+            #### Verification Guide:
+            1. Check Markdown formatting integrity
+            2. Validate technical term accuracy
+            3. Review code block preservation
+            
+            > Metadata: ${{ env.TRANSLATION_VERSION }}
+          branch: "translation-${{ env.TRANSLATION_VERSION }}"
+          labels: "translation,needs-review"
           reviewers: reviewer1,reviewer2
+          commit-message: "feat(translation): batch update ${{ env.TRANSLATION_VERSION }}"
