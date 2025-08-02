@@ -31,7 +31,7 @@ class TranslationBot:
         self.translator = MarkdownTranslator(self.api_key)
         self.run_id = os.getenv("GITHUB_RUN_ID", "manual-run")
         
-        # 初始化Git仓库
+        # 初始化 Git 仓库
         try:
             self.repo = Repo(".")
             logger.info(f"Initialized Git repo at {self.repo.working_dir}")
@@ -52,18 +52,18 @@ class TranslationBot:
 
     def run(self):
         try:
-            logger.info(f"Starting translation run {self.run_id}")
+            logger.info(f"Starting traun {self.run_id}")
             
-            # 阶段1：检测和验证变更
+            # 阶段 1：检测和验证变更
             changed_files = self.get_changed_files()
             if not changed_files:
                 logger.info("No changed Markdown files detected")
                 return
             
-            # 阶段2：执行翻译
+            # 阶段 2：执行翻译
             stats = self.execute_translation(changed_files)
             
-            # 阶段3：提交和创建PR
+            # 阶段 3：提交和创建 PR
             if self.args.dry_run:
                 logger.info("⚠️ Dry run mode activated. No changes will be committed.")
                 logger.info(f"Would create PR for {len(changed_files)} files")
@@ -77,7 +77,7 @@ class TranslationBot:
             sys.exit(1)
 
     def get_changed_files(self) -> List[str]:
-        """识别已修改/添加的markdown文件"""
+        """识别已修改/添加的 markdown 文件"""
         changed = []
         source_path = Path(self.args.source_dir).absolute()
         
@@ -88,7 +88,7 @@ class TranslationBot:
             for diff_item in diff_result:
                 file_path = diff_item.a_path
                 
-                # 只处理.md文件
+                # 只处理 .md 文件
                 if file_path and file_path.endswith('.md'):
                     abs_path = (self.repo.working_dir / file_path).absolute()
                     
@@ -137,12 +137,12 @@ class TranslationBot:
         return stats
 
     def create_versioned_pr(self, changed_files: List[str], stats: Dict[str, int]):
-        """提交变更并创建带版本的PR"""
-        # 配置Git身份
+        """提交变更并创建带版本的 PR"""
+        # 配置 Git 身份
         self.repo.git.config("user.name", "Translation Bot")
         self.repo.git.config("user.email", "translation-bot@users.noreply.github.com")
         
-        # 创建带版本的branch
+        # 创建带版本的 branch
         branch_name = f"translation-{self.run_id}"
         logger.info(f"Creating branch {branch_name}")
         
@@ -159,12 +159,12 @@ Files processed:
         self.repo.index.commit(commit_msg)
         logger.info("Changes committed")
         
-        # 推送到branch
+        # 推送到 branch
         origin = self.repo.remote(name='origin')
         origin.push(refspec=f"HEAD:{branch_name}", force=True)
         logger.info(f"Pushed to {branch_name}")
         
-        # 创建PR
+        # 创建 PR
         github_token = os.getenv("GITHUB_TOKEN")
         if not github_token:
             raise Exception("Missing GITHUB_TOKEN")
@@ -196,7 +196,7 @@ Files processed:
         logger.info(f"Created PR #{pr.number}: {pr.html_url}")
 
     def generate_pr_body(self, files: List[str], stats: Dict[str, int]) -> str:
-        """生成完整的PR描述"""
+        """生成完整的 PR 描述"""
         sample_files = "\n".join(f"- `{Path(f).relative_to(self.args.source_dir)}`" for f in files[:5])
         if len(files) > 5:
             sample_files += f"\n- ...(+{len(files)-5} more files)"

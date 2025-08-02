@@ -52,12 +52,12 @@ class MarkdownTranslator:
                     "content": (
                         "你是一位专业的技术文档翻译助手。\n"
                         "规则:\n"
-                        "1. 完全保留所有Markdown格式\n"
+                        "1. 完全保留所有 Markdown 格式\n"
                         "2. 绝不修改代码块或行内代码\n"
-                        "3. 保留URL和YAML front matter不变\n"
+                        "3. 保留 URL 和 YAML front matter 不变\n"
                         f"4. 使用以下术语表:\n{self.format_glossary()}\n"
                         "5. 保持技术术语一致\n"
-                        f"6. 正在翻译的文件路径: {file_path}"
+                        f"6. 正在翻译的文件路径：{file_path}"
                     )
                 },
                 {
@@ -89,10 +89,10 @@ class MarkdownTranslator:
             return result
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"API请求失败: {str(e)}")
+            logger.error(f"API 请求失败：{str(e)}")
             raise TranslationError("翻译服务不可用")
         except Exception as e:
-            logger.error(f"意外错误: {str(e)}")
+            logger.error(f"意外错误：{str(e)}")
             raise TranslationError("处理翻译失败")
 
     def load_glossary(self) -> Dict[str, str]:
@@ -109,13 +109,13 @@ class MarkdownTranslator:
                         logger.info(f"Loaded glossary from {glossary_path}")
                         return json.load(f)
                 except Exception as e:
-                    logger.warning(f"术语表加载失败({glossary_path}): {str(e)}")
+                    logger.warning(f"术语表加载失败 ({glossary_path}): {str(e)}")
         
         logger.warning("No glossary found, using empty glossary")
         return {}
 
     def format_glossary(self) -> str:
-        """为API提示格式化术语表"""
+        """为 API 提示格式化术语表"""
         if not self.glossary:
             return "（空术语表）"
         return "\n".join(f"{k} → {v}" for k, v in self.glossary.items())
@@ -131,7 +131,7 @@ class MarkdownTranslator:
                 content = f.read()
 
             if not content.strip():
-                logger.warning(f"跳过空文件: {rel_path}")
+                logger.warning(f"跳过空文件：{rel_path}")
                 return False
 
             # 创建输出目录结构
@@ -154,7 +154,7 @@ class MarkdownTranslator:
             logger.error(f"翻译失败 {rel_path}: {str(e)}")
             return False
         except Exception as e:
-            logger.error(f"处理 {rel_path} 失败: {str(e)}", exc_info=True)
+            logger.error(f"处理 {rel_path} 失败：{str(e)}", exc_info=True)
             return False
 
     def batch_translate(self, 
@@ -164,12 +164,12 @@ class MarkdownTranslator:
         """
         批量翻译，保留目录结构
         
-        参数:
+        参数：
             input_dir: 源目录路径
             output_dir: 目标目录路径
             specific_files: 要处理的相对路径的可选列表
             
-        返回:
+        返回：
             包含成功/失败计数的字典
         """
         input_path = Path(input_dir)
@@ -194,5 +194,5 @@ class MarkdownTranslator:
             else:
                 stats['failed'] += 1
         
-        logger.info(f"翻译完成: ✅ {stats['success']} 个成功, ❌ {stats['failed']} 个失败")
+        logger.info(f"翻译完成：✅ {stats['success']} 个成功，❌ {stats['failed']} 个失败")
         return stats
