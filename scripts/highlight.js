@@ -109,8 +109,16 @@ async function processHtmlFile(filePath) {
       }
     }
   }
+  content = injectClicky(content);
   fs.writeFileSync(filePath, content, "utf8");
   console.log(`Highlighted: ${filePath}`);
+}
+
+function injectClicky(content) {
+  return content.replace(
+    /<\/body>/,
+    `<script async data-id="101490373" src="//static.getclicky.com/js"></script></body>`
+  );
 }
 
 async function main(dirname) {
@@ -124,6 +132,23 @@ async function main(dirname) {
     console.error("Error stack:", error.stack);
   }
   fs.copyFileSync("styles/shiki.css", `${dirname}/publish/shiki.css`);
+  if (fs.existsSync("styles/main.css")) {
+    fs.copyFileSync("styles/main.css", `${dirname}/publish/main.css`);
+  }
+  if (fs.existsSync("styles/catalog.js")) {
+    fs.copyFileSync("styles/catalog.js", `${dirname}/publish/catalog.js`);
+    const htmlFiles = findHtmlFiles(targetDir);
+    for (const file of htmlFiles) {
+      let html = fs.readFileSync(file, "utf8");
+      if (!html.includes('<script src="/catalog.js"></script>')) {
+        html = html.replace(
+          /<\/body>/i,
+          '<script src="/catalog.js"></script>\n</body>'
+        );
+        fs.writeFileSync(file, html, "utf8");
+      }
+    }
+  }
 }
 
 export default main;
