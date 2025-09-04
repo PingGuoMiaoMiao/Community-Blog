@@ -1,3 +1,4 @@
+
 ---
 title: Blog
 collect: true
@@ -18,3 +19,5 @@ collect: true
 [+-](/blog/lrualgorithm/index.md#:embed)
 
 [+-](/blog/lti/index.md#:embed)
+
+[+-](/blog/trick/impl_trait_for_generic_type_with_different_instances.mbt.md#:embed)
